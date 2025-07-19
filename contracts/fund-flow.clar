@@ -107,3 +107,115 @@
     vote-for: bool,
   }
 )
+
+;; Campaign Participant Management
+(define-map campaign-contributors
+  { campaign-id: uint }
+  { contributor-list: (list 500 principal) }
+)
+
+;; READ-ONLY INTERFACE FUNCTIONS
+
+;; Retrieve comprehensive campaign information
+(define-read-only (get-campaign (campaign-id uint))
+  (map-get? campaigns { campaign-id: campaign-id })
+)
+
+;; Access contributor-specific funding details
+(define-read-only (get-contribution
+    (campaign-id uint)
+    (contributor principal)
+  )
+  (map-get? contributions {
+    campaign-id: campaign-id,
+    contributor: contributor,
+  })
+)
+
+;; Query total platform campaign count
+(define-read-only (get-campaign-count)
+  (var-get campaign-counter)
+)
+
+;; Access current platform fee structure
+(define-read-only (get-platform-fee-rate)
+  (var-get platform-fee-rate)
+)
+
+;; Verify campaign active status in real-time
+(define-read-only (is-campaign-active (campaign-id uint))
+  (match (get-campaign campaign-id)
+    campaign (and
+      (is-eq (get status campaign) STATUS_ACTIVE)
+      (< stacks-block-height (get deadline-height campaign))
+    )
+    false
+  )
+)
+
+;; Determine campaign funding success status
+(define-read-only (is-campaign-successful (campaign-id uint))
+  (match (get-campaign campaign-id)
+    campaign (>= (get raised campaign) (get goal campaign))
+    false
+  )
+)
+
+;; Calculate platform fee for given amount
+(define-read-only (calculate-platform-fee (amount uint))
+  (/ (* amount (var-get platform-fee-rate)) u10000)
+)
+
+;; Retrieve voting participation status
+(define-read-only (get-vote-status
+    (campaign-id uint)
+    (voter principal)
+  )
+  (map-get? contributor-votes {
+    campaign-id: campaign-id,
+    voter: voter,
+  })
+)
+
+;; INTERNAL UTILITY FUNCTIONS
+
+;; Validate string inputs for security
+(define-private (is-valid-string (input (string-ascii 256)))
+  (let ((length (len input)))
+    (and
+      (> length u0)
+      (<= length u256)
+      true
+    )
+  )
+)
+
+;; Enforce campaign ID boundaries
+(define-private (is-valid-campaign-id (campaign-id uint))
+  (and
+    (> campaign-id u0)
+    (<= campaign-id MAX_CAMPAIGN_ID)
+  )
+)
+
+;; Manage contributor list expansion
+(define-private (add-contributor-to-list
+    (campaign-id uint)
+    (contributor principal)
+  )
+  (let ((current-list (default-to (list)
+      (get contributor-list
+        (map-get? campaign-contributors { campaign-id: campaign-id })
+      ))))
+    (if (< (len current-list) u500)
+      (begin
+        (map-set campaign-contributors { campaign-id: campaign-id } { contributor-list: (unwrap! (as-max-len? (append current-list contributor) u500)
+          ERR_CONTRIBUTOR_LIST_FULL
+        ) }
+        )
+        (ok true)
+      )
+      (ok true)
+    )
+  )
+)
