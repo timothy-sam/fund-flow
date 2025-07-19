@@ -433,3 +433,65 @@
       ERR_VOTING_PERIOD_ENDED
     )
     (asserts! (is-none existing-vote) ERR_ALREADY_VOTED)
+    (asserts! (> (get voting-power contribution) u0)
+      ERR_INSUFFICIENT_VOTING_POWER
+    )
+    ;; Register vote decision
+    (map-set contributor-votes {
+      campaign-id: campaign-id,
+      voter: tx-sender,
+    } {
+      voted: true,
+      vote-for: vote-for,
+    })
+    ;; Update weighted vote tallies
+    (if vote-for
+      (map-set campaigns { campaign-id: campaign-id }
+        (merge campaign { votes-for: (+ (get votes-for campaign) (get voting-power contribution)) })
+      )
+      (map-set campaigns { campaign-id: campaign-id }
+        (merge campaign { votes-against: (+ (get votes-against campaign) (get voting-power contribution)) })
+      )
+    )
+    (ok true)
+  )
+)
+
+;; Creator-initiated campaign cancellation
+(define-public (cancel-campaign (campaign-id uint))
+  (let ((campaign (unwrap! (get-campaign campaign-id) ERR_CAMPAIGN_NOT_FOUND)))
+    ;; Cancellation authorization
+    (asserts! (is-valid-campaign-id campaign-id) ERR_INVALID_PARAMETERS)
+    (asserts! (is-eq (get creator campaign) tx-sender) ERR_UNAUTHORIZED)
+    (asserts! (is-eq (get status campaign) STATUS_ACTIVE) ERR_CAMPAIGN_ENDED)
+    (map-set campaigns { campaign-id: campaign-id }
+      (merge campaign { status: STATUS_CANCELLED })
+    )
+    (ok true)
+  )
+)
+
+;; ADMINISTRATIVE CONTROL FUNCTIONS
+
+;; Platform fee structure management
+(define-public (set-platform-fee-rate (new-rate uint))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_UNAUTHORIZED)
+    (asserts! (<= new-rate u1000) ERR_INVALID_PARAMETERS) ;; Maximum 10%
+    (var-set platform-fee-rate new-rate)
+    (ok true)
+  )
+)
+
+;; Emergency campaign intervention mechanism
+(define-public (emergency-pause-campaign (campaign-id uint))
+  (let ((campaign (unwrap! (get-campaign campaign-id) ERR_CAMPAIGN_NOT_FOUND)))
+    ;; Emergency intervention authorization
+    (asserts! (is-valid-campaign-id campaign-id) ERR_INVALID_PARAMETERS)
+    (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_UNAUTHORIZED)
+    (map-set campaigns { campaign-id: campaign-id }
+      (merge campaign { status: STATUS_CANCELLED })
+    )
+    (ok true)
+  )
+)
